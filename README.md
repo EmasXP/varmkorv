@@ -6,7 +6,7 @@ This is just a proof of concept. You are free to use it if you like, or find ins
 
 You might wonder if the world really need another Python web framework, and the answer is probably: no. I created this framework out of curiosity. The routes are "complied" (and recompiled if changed during runtime), and it does not contain much fluff at all. That makes this framework really speedy - way speedier than CherryPy (and Flask too for that matter).
 
-I have implemeted support for Authentication and Peewee. That is what I need for my personal projects, and might not suit all.
+I have implemented support for Authentication and Peewee. That is what I need for my personal projects, and might not suit all.
 
 
 ## Hello, world!
@@ -100,7 +100,7 @@ We now have these routes:
 * `http://localhost:8080/food/pizza`
 
 
-### Sub-controllers in __init__
+### Sub-controllers in \_\_init\_\_
 
 ```python
 from varmkorv import Controller, App
@@ -134,7 +134,7 @@ run_simple('localhost', 8080, app, use_reloader=True)
 
 Every callable property of a controller that does not start with a `_` (underscore) are treated as an action (or view, or whatever you want to call it).
 
-Every property that inhertits `Controller` that does not start with a `_` is treated as a sub-controller. A sub-controller _also_ is treated as an action (or view, and so on) if it's callable.
+Every property that inherits `Controller` that does not start with a `_` is treated as a sub-controller. A sub-controller is _also_ treated as an action (or view, and so on) if it's callable.
 
 
 ## URL parameters
@@ -150,7 +150,7 @@ class First(Controller):
         return Response('Good morning')
 
     def hello(self, request: Request, name: str):
-        return Response('Hello, '+name)
+        return Response('Hello, ' + name)
 
 app = App(First())
 
@@ -167,7 +167,7 @@ The `hello` action now has a _mandatory_ `name` parameter.
 
 ### Optional parameters
 
-And now, let's alter the code to support an _optional_ `name` parameter:
+And now, let's alter the code to support an _optional_ `name` parameter instead:
 
 ```python
 from varmkorv import Controller, App
@@ -179,8 +179,8 @@ class First(Controller):
 
     def hello(self, request: Request, name: str = None):
         if not name:
-            return Response("Hello, mysterious person")
-        return Response('Hello, '+name)
+            return Response('Hello, mysterious person')
+        return Response('Hello, ' + name)
 
 app = App(First())
 
@@ -227,7 +227,7 @@ from werkzeug import Request, Response
 
 class Food(object):
     def __init__(self, value):
-        if value == "human":
+        if value == 'human':
             raise ValueError;
         self.value = value
 
@@ -236,7 +236,7 @@ class First(Controller):
         return Response('Good morning')
 
     def food(self, request: Request, food: Food):
-        return Response(food.value + " sounds good")
+        return Response(food.value + ' sounds good')
 
 app = App(First())
 
@@ -264,7 +264,7 @@ class First(Controller):
 
 app = App(First())
 
-db = APSWDatabase("my-food-website.db")
+db = APSWDatabase('my-food-website.db')
 
 PeeweeWrapper(db).wrap_application(app)
 
@@ -302,8 +302,8 @@ class User(BaseModel):
 
 class First(Controller):
     def login(self, request: Request):
-        username = request.form.get("username")
-        password = request.form.get("password")
+        username = request.form.get('username')
+        password = request.form.get('password')
 
         user = User.find_or_none(User.username == username)
 
@@ -312,7 +312,7 @@ class First(Controller):
 
         request.login.login_user(user)
 
-        return Response("Successfully logged in")
+        return Response('Successfully logged in')
 
     def check(self, request: Request):
         if not request.login.user:
@@ -321,17 +321,74 @@ class First(Controller):
 
 app = App(First())
 
-db = APSWDatabase("my-food-website.db")
+db = APSWDatabase('my-food-website.db')
 PeeweeWrapper(db).wrap_application(app)
 
 def load_user(user_id):
-    print("Loading user", user_id)
     return User.get_or_none(User.id == user_id)
 
-login = LoginManager("secret", load_user)
+login = LoginManager('secret', load_user)
 login.wrap_application(app)
 ```
 
 I am using Peewee in this example, but you are free to use whatever you like.
 
 Feels like more work needs to be done on the LoginManager to make it more secure.
+
+## WSGI
+
+Varmkorv is a WSGI application framework. You can for example run it using Meinheld:
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+
+class First(Controller):
+    def __call__(self, request: Request):
+        return Response('Hello, world!')
+
+app = App(First())
+
+from meinheld import server
+server.listen(("127.0.0.1", 8080))
+server.set_access_logger(None)
+server.run(app)
+```
+
+Varmkorv will run under any WSGI server.
+
+## Things I have not written about yet
+
+* on_request
+* on_response
+
+## Things that are missing
+
+As I said earlier, it feels like the LoginManager could get more secure.
+
+There's no built in template engine, and I think it should stay like that. Maybe a wrapper for Jinja2 would be nice, though that probably works splendid stand alone (without a wrapper)
+
+There's no configuration layer. I quite like Viper for Go. Not sure a built-in configuration layer is really needed though.
+
+Varmkorv has the "on_request" and "on_response" hooks, but initially I had a different idea of how it should work. Here's some pseudo code (that looks awfully a lot like Python):
+
+```python
+# A client defined method:
+def hello(next):
+    def handle(request):
+        # stuff
+        response = next(request) 
+        # things 
+        return response
+    return handle
+
+# And add it to the application
+app.wrap(hello)
+
+# Inside Varmkorv:
+class App:
+    def wrap(self, func):
+        self.handle = func(self.handle)
+```
+
+This is sort of like Python decorators, but not using decorators. I guess decorators could actually be used.

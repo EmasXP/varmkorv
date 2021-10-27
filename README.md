@@ -266,7 +266,7 @@ app = App(First())
 
 db = APSWDatabase('my-food-website.db')
 
-PeeweeWrapper(db).wrap_application(app)
+app.wrap(PeeweeWrapper(db))
 
 from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
@@ -322,18 +322,188 @@ class First(Controller):
 app = App(First())
 
 db = APSWDatabase('my-food-website.db')
-PeeweeWrapper(db).wrap_application(app)
+app.wrap(PeeweeWrapper(db))
 
 def load_user(user_id):
     return User.get_or_none(User.id == user_id)
 
 login = LoginManager('secret', load_user)
-login.wrap_application(app)
+app.wrap(app)
 ```
 
 I am using Peewee in this example, but you are free to use whatever you like.
 
 Feels like more work needs to be done on the LoginManager to make it more secure.
+
+## Wrappers / middlewares
+
+Peewee and LoginManager use Varmkorv's wrapping functionality. 
+
+Let's create our own wrapper:
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+
+class First(Controller):
+    def __call__(self, request: Request):
+        print('Hello, world!')
+        return Response('Hello, world!')
+
+app = App(First())
+
+def my_wrapper(next):
+    def handle(request: Request, *args, **kwargs):
+        print('This is me, doing things on the request!')
+        response = next(request, *args, **kwargs)
+        print('And here I am again, doing things on the response!')
+        return response
+    return handle
+
+app.wrap(my_wrapper)
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+If you point your browser to `http://localhost:8080/` and go back to the terminal where you are running the application server, you will see the following:
+
+```
+This is me, doing things on the request!
+Hello, world!
+And here I am again, doing things on the response!
+```
+
+### The order of the wrappers
+
+Now we are going to add two wrappers to our application and see what happens:
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+
+class First(Controller):
+    def __call__(self, request: Request):
+        print('Hello, world!')
+        return Response('Hello, world!')
+
+app = App(First())
+
+def my_first_wrapper(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: first wrapper')
+        response = next(request, *args, **kwargs)
+        print('Response: first wrapper')
+        return response
+    return handle
+
+def my_second_wrapper(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: second wrapper')
+        response = next(request, *args, **kwargs)
+        print('Response: second wrapper')
+        return response
+    return handle
+
+app.wrap(my_first_wrapper)
+app.wrap(my_second_wrapper)
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+And again, refresh your browser and go back to the terminal. You will see this:
+
+```
+Request: first wrapper
+Request: second wrapper
+Hello, world!
+Response: second wrapper
+Response: first wrapper
+```
+
+This is quite important: _The wrapper you add first is the one being included first_. We added `my_first_wrapper` first, and `Request: first wrapper` is what we see first in the terminal.
+
+### Wrappers on controllers
+
+The examples are starting to get a bit lenghty, but here we go:
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+
+def my_app_wrapper(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: app wrapper')
+        response = next(request, *args, **kwargs)
+        print('Response: app wrapper')
+        return response
+    return handle
+
+def my_food_controller_wrapper(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: food controller wrapper')
+        response = next(request, *args, **kwargs)
+        print('Response: food controller wrapper')
+        return response
+    return handle
+
+class Food(Controller):
+    def __init__(self):
+        Controller.__init__(self)
+        self.wrap(my_food_controller_wrapper)  # Wrapping on controller level
+
+    def __call__(self, request: Request):
+        print('Hello, food!')
+        return Response('Hello, food!')
+
+class First(Controller):
+    def __init__(self):
+        Controller.__init__(self)
+        self.food = Food()  # Attaching the food sub-controller
+
+    def __call__(self, request: Request):
+        print('Hello, first!')
+        return Response('Hello, first!')
+
+app = App(First())
+
+app.wrap(my_app_wrapper) # Wrapping on app level
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+I feel like I need to excuse myself for this long example. Just to be clear. in this example we have:
+
+* The `my_app_wrapper` being attached to the application.
+* The `Food` controller being attached as a sub-controller to `First`
+* The `my_food_controller_wrapper` being attached to the `Food` controller.
+
+If we point the browser to `http://localhost:8080/` we will see the following in the terminal:
+
+```
+Request: app wrapper
+Hello, first!
+Response: app wrapper
+```
+
+And if we point the point the browser to `http://localhost:8080/food` we will see the following in the terminal:
+
+```
+Request: app wrapper
+Request: food controller wrapper
+Hello, food!
+Response: food controller wrapper
+Response: app wrapper
+```
+
+There are two things worth noticing here:
+
+* The wrappers of the `Food` controller are only going to be included if the `Food` controller is used.
+* The wrappers of the parents has higher priority than the sub-controller. In other words: each sub-controller's wrappers are included _after_ the wrappers its parents' wrappers. 
+
+All the parent controller's wrappers are going to be included. That means that you can for example have an "admin" controller where you limit who has access, and that will be reflected on all of its sub-controllers.
 
 ## WSGI
 
@@ -355,12 +525,7 @@ server.set_access_logger(None)
 server.run(app)
 ```
 
-Varmkorv will run under any WSGI server.
-
-## Things I have not written about yet
-
-* on_request
-* on_response
+Varmkorv will run under any WSGI server. The `run_simple` server that ships with Werkzeug is only meant to be used during development. When running on production you would need something more robust and with higher performance.
 
 ## Things that are missing
 
@@ -370,25 +535,8 @@ There's no built in template engine, and I think it should stay like that. Maybe
 
 There's no configuration layer. I quite like Viper for Go. Not sure a built-in configuration layer is really needed though.
 
-Varmkorv has the "on_request" and "on_response" hooks, but initially I had a different idea of how it should work. Here's some pseudo code (that looks awfully a lot like Python):
+Better 404 handling. I think 404 exceptions should be raised instead. The developer can pass a 404 handler method to the application, and the exception and the current request can be passed to that method on 404. Of course a simple default 404 method needs to exist.
 
-```python
-# A client defined method:
-def hello(next):
-    def handle(request):
-        # stuff
-        response = next(request) 
-        # things 
-        return response
-    return handle
+There's no proper file structure to the project. Needs to be added if this project is supposed to get used. There are also things like missing doc strings.
 
-# And add it to the application
-app.wrap(hello)
-
-# Inside Varmkorv:
-class App:
-    def wrap(self, func):
-        self.handle = func(self.handle)
-```
-
-This is sort of like Python decorators, but not using decorators. I guess decorators could actually be used.
+There are no unit tests.

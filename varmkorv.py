@@ -20,11 +20,17 @@ class ControllerApps(object):
 class Controller(object):
     def __init__(self):
         self._apps = ControllerApps()
+        self._wrappers = []
 
     def __setattr__(self, prop, val):
         object.__setattr__(self, prop, val)
-        if not prop.startswith("_"):
+        if not prop.startswith("_") and prop != "wrap":
             self._apps.notify()
+
+    def wrap(self, handler):
+        self._wrappers.append(handler)
+        self._apps.notify()
+        return self
 
 
 class Caller(object):
@@ -65,8 +71,6 @@ class Caller(object):
 
     def _execute(self, c, args: list):
         response = c(*args)
-        for c in self.app.on_response:
-            c(self.request, response)
         return response(self.environ, self.start_response)
 
 
@@ -96,19 +100,30 @@ class App(object):
         self._routes = None
         self._routes_num = None
         self._routes_max = None
+        self._wrappers = []
         self._compile()
-        self.on_request = []
-        self.on_response = []
 
     def _compile(self):
         data = {}
 
-        def compile_entry(controller: Controller, parents: tuple = ()):
+        def compile_entry(
+            controller: Controller, parents: tuple = (), controller_instances=[]
+        ):
+            controller_instances.append(controller)
+
+            def add_wrappers(instance):
+                for controller_instance in reversed(controller_instances):
+                    for wrapper in reversed(controller_instance._wrappers):
+                        instance = wrapper(instance)
+                for wrapper in reversed(self._wrappers):
+                    instance = wrapper(instance)
+                return instance
+
             controller._apps.register(self)
             if callable(controller):
                 entry = {
                     "signature": _compile_signature(controller),
-                    "instance": controller,
+                    "instance": add_wrappers(controller),
                 }
                 data[parents] = entry
             for prop_name in dir(controller):
@@ -120,11 +135,11 @@ class App(object):
                 if callable(prop):
                     entry = {
                         "signature": _compile_signature(prop),
-                        "instance": prop,
+                        "instance": add_wrappers(prop),
                     }
                     data[tuple(name)] = entry
                 if isinstance(prop, Controller):
-                    compile_entry(prop, tuple(name))
+                    compile_entry(prop, tuple(name), controller_instances)
 
         compile_entry(self.root)
 
@@ -143,8 +158,6 @@ class App(object):
 
     def __call__(self, environ, start_response):
         request = Request(environ)
-        for c in self.on_request:
-            c(request)
         parts = request.path.strip("/").split("/")
         caller = Caller(self, environ, start_response, request)
         if len(parts) == 1 and parts[0] == "":
@@ -165,6 +178,11 @@ class App(object):
 
     def _render_404(self, request: Request):
         return Response("404")
+
+    def wrap(self, handler):
+        self._wrappers.append(handler)
+        self._compile()
+        return self
 
 
 class LoginInstance:
@@ -201,33 +219,34 @@ class LoginManager:
         self.cookie_name = cookie_name
         self.httponly = httponly
 
-    def _on_request(self, request: Request):
-        setattr(request, "login", LoginInstance(request, self))
+    def __call__(self, next):
+        def handle(request, *args, **kwargs):
+            setattr(request, "login", LoginInstance(request, self))
+            response = next(request, *args, **kwargs)
+            if getattr(request, "login").session.should_save:
+                session_data = getattr(request, "login").session.serialize()
+                response.set_cookie(
+                    self.cookie_name, session_data, httponly=self.httponly
+                )
+            return response
 
-    def _on_response(self, request: Request, response: Response):
-        if getattr(request, "login").session.should_save:
-            session_data = getattr(request, "login").login.session.serialize()
-            response.set_cookie(self.cookie_name, session_data, httponly=self.httponly)
-
-    def wrap_application(self, app: App):
-        app.on_request.append(self._on_request)
-        app.on_response.append(self._on_response)
+        return handle
 
 
 class PeeweeWrapper:
     def __init__(self, db):
         self.db = db
 
-    def _on_request(self, request: Request):
-        self.db.connect(reuse_if_open=True)
+    def __call__(self, next):
+        def handle(request, *args, **kwargs):
+            self.db.connect(reuse_if_open=True)
+            response = next(request, *args, **kwargs)
 
-    def _on_response(self, request: Request, response: Response):
-        def close_db():
-            if not self.db.is_closed():
-                self.db.close()
+            def close_db():
+                if not self.db.is_closed():
+                    self.db.close()
 
-        response.call_on_close(close_db)
+            response.call_on_close(close_db)
+            return response
 
-    def wrap_application(self, app: App):
-        app.on_request.append(self._on_request)
-        app.on_response.append(self._on_response)
+        return handle

@@ -6,7 +6,7 @@ This is just a proof of concept. You are free to use it if you like, or find ins
 
 You might wonder if the world really need another Python web framework, and the answer is probably: no. I created this framework out of curiosity. The routes are "complied" (and recompiled if changed during runtime), and it does not contain much fluff at all. That makes this framework really speedy - way speedier than CherryPy (and Flask too for that matter).
 
-I have implemented support for Authentication and Peewee. That is what I need for my personal projects, and might not suit all.
+I have implemented support for cookie authentication and Peewee. That is what I need for my personal projects, and might not suit all.
 
 
 ## Hello, world!
@@ -25,7 +25,7 @@ from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
 ```
 
-Point your browser to `http://localhost:8080/` and feel welcomed.
+Point your browser to `http://localhost:8080/` and feel welcomed (if you call yourself "world", that is).
 
 
 ## Actions (views)
@@ -69,7 +69,7 @@ from werkzeug import Request, Response
 
 class Food(Controller):
     def __call__(self, request: Request):
-        return Response('You got to eat')
+        return Response('One has to eat')
 
     def kebab(self, request: Request):
         return Response('So nice')
@@ -250,7 +250,7 @@ run_simple('localhost', 8080, app, use_reloader=True)
 
 ## VerbController
 
-A `Controller` does not care with HTTP method is used when requesting a page. That is not always the desired behavior. Writing a REST API this way would be an interesting challenge. Or maybe one can see it as a good way of learning new swear words. Another solution would be to use `VerbController` instead.
+A `Controller` does not care which HTTP method is used when requesting a page. That is not always the desired behavior. Writing a REST API this way would be an interesting challenge. Or maybe one can see it as a good way of learning new swear words. Another solution would be to use `VerbController` instead.
 
 ```python
 from varmkorv import VerbController, App
@@ -387,11 +387,11 @@ I am using Peewee in this example, but you are free to use whatever you like.
 
 Feels like more work needs to be done on the CookieLoginMiddleware to make it more secure.
 
-### Creating middleware
+### How middlewares work, and how to create new ones
 
 Peewee and CookieLogin use Varmkorv's middleware functionality.
 
-Let's create our own middleware:
+Let's create our own:
 
 ```python
 from varmkorv import Controller, App
@@ -426,7 +426,7 @@ Hello, world!
 And here I am again, doing things on the response!
 ```
 
-A lot of shouting, in other words.
+That's a lot of shouting.
 
 ### The order of the middlewares
 
@@ -480,9 +480,11 @@ This is quite important: _The middleware you add first is the one being included
 
 To put it differently: one shall add the middleware of highest priority first. That's why we in the CookieLogin example added `PeeweeMiddleware` before `CookieLoginMiddleware`, because `CookieLoginMiddleware` needs the database connection provided by `PeeweeMiddleware`.
 
+I chose this order because I think it's the most intuitive. At least in my brain that makes the most sense, and if I am more tired than usual one day, hopefully I will add wrappers in the correct order without the need to think.
+
 ### Middleware on controllers
 
-The examples are starting to get a bit lenghty, but here we go:
+This example is a bit lenghty, but here we go:
 
 ```python
 from varmkorv import Controller, App
@@ -576,7 +578,7 @@ class First(Controller):
 app = App(First())
 
 from meinheld import server
-server.listen(("127.0.0.1", 8080))
+server.listen(('0.0.0.0', 8080))
 server.set_access_logger(None)
 server.run(app)
 ```

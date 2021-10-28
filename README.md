@@ -297,10 +297,14 @@ These are the available methods:
 * \_trace - TRACE
 * \_patch - PATCH
 
-## Peewee
+## Middleware
+
+I am going to show how middlewares work later under this section, but first I want to show you the two built in middlewares: Peewee and CookieLogin.
+
+### Peewee
 
 ```python
-from varmkorv import Controller, App, PeeweeWrapper
+from varmkorv import Controller, App, PeeweeMiddleware
 from werkzeug import Request, Response
 from playhouse.apsw_ext import APSWDatabase
 
@@ -315,17 +319,17 @@ app = App(First())
 
 db = APSWDatabase('my-food-website.db')
 
-app.wrap(PeeweeWrapper(db))
+app.add_middleware(PeeweeMiddleware(db))
 
 from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
 ```
 
 
-## LoginManager
+### CookieLogin
 
 ```python
-from varmkorv import Controller, App, PeeweeWrapper, LoginManager
+from varmkorv import Controller, App, PeeweeMiddleware, CookieLoginMiddleware
 from peewee import Model, AutoField, CharField
 from playhouse.apsw_ext import APSWDatabase
 
@@ -371,23 +375,23 @@ class First(Controller):
 app = App(First())
 
 db = APSWDatabase('my-food-website.db')
-app.wrap(PeeweeWrapper(db))
+app.add_middleware(PeeweeMiddleware(db))
 
 def load_user(user_id):
     return User.get_or_none(User.id == user_id)
 
-app.wrap(LoginManager('secret', load_user))
+app.add_middleware(CookieLoginMiddleware('secret', load_user))
 ```
 
 I am using Peewee in this example, but you are free to use whatever you like.
 
-Feels like more work needs to be done on the LoginManager to make it more secure.
+Feels like more work needs to be done on the CookieLoginMiddleware to make it more secure.
 
-## Wrappers / middlewares
+### Creating middleware
 
-Peewee and LoginManager use Varmkorv's wrapping functionality. 
+Peewee and CookieLogin use Varmkorv's middleware functionality.
 
-Let's create our own wrapper:
+Let's create our own middleware:
 
 ```python
 from varmkorv import Controller, App
@@ -400,7 +404,7 @@ class First(Controller):
 
 app = App(First())
 
-def my_wrapper(next):
+def my_middleware(next):
     def handle(request: Request, *args, **kwargs):
         print('This is me, doing things on the request!')
         response = next(request, *args, **kwargs)
@@ -408,7 +412,7 @@ def my_wrapper(next):
         return response
     return handle
 
-app.wrap(my_wrapper)
+app.add_middleware(my_middleware)
 
 from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
@@ -422,9 +426,11 @@ Hello, world!
 And here I am again, doing things on the response!
 ```
 
-### The order of the wrappers
+A lot of shouting, in other words.
 
-Now we are going to add two wrappers to our application and see what happens:
+### The order of the middlewares
+
+Now we are going to add two middlewares to our application and see what happens:
 
 ```python
 from varmkorv import Controller, App
@@ -437,24 +443,24 @@ class First(Controller):
 
 app = App(First())
 
-def my_first_wrapper(next):
+def my_first_middleware(next):
     def handle(request: Request, *args, **kwargs):
-        print('Request: first wrapper')
+        print('Request: first middleware')
         response = next(request, *args, **kwargs)
-        print('Response: first wrapper')
+        print('Response: first middleware')
         return response
     return handle
 
-def my_second_wrapper(next):
+def my_second_middleware(next):
     def handle(request: Request, *args, **kwargs):
-        print('Request: second wrapper')
+        print('Request: second middleware')
         response = next(request, *args, **kwargs)
-        print('Response: second wrapper')
+        print('Response: second middleware')
         return response
     return handle
 
-app.wrap(my_first_wrapper)
-app.wrap(my_second_wrapper)
+app.add_middleware(my_first_middleware)
+app.add_middleware(my_second_middleware)
 
 from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
@@ -463,18 +469,18 @@ run_simple('localhost', 8080, app, use_reloader=True)
 And again, refresh your browser and go back to the terminal. You will see this:
 
 ```
-Request: first wrapper
-Request: second wrapper
+Request: first middleware
+Request: second middleware
 Hello, world!
-Response: second wrapper
-Response: first wrapper
+Response: second middleware
+Response: first middleware
 ```
 
-This is quite important: _The wrapper you add first is the one being included first_. We added `my_first_wrapper` first, and `Request: first wrapper` is what we see first in the terminal.
+This is quite important: _The middleware you add first is the one being included first_. We added `my_first_middleware` first, and `Request: first middleware` is what we see first in the terminal.
 
-To put it differently: one shall add the wrappers of highest priority first. That's why we in the LoginManager example added `PeeweeWrapper` before `LoginManager`, because `LoginManager` needs the database connection provided by `PeeweeWrapper`.
+To put it differently: one shall add the middleware of highest priority first. That's why we in the CookieLogin example added `PeeweeMiddleware` before `CookieLoginMiddleware`, because `CookieLoginMiddleware` needs the database connection provided by `PeeweeMiddleware`.
 
-### Wrappers on controllers
+### Middleware on controllers
 
 The examples are starting to get a bit lenghty, but here we go:
 
@@ -482,26 +488,26 @@ The examples are starting to get a bit lenghty, but here we go:
 from varmkorv import Controller, App
 from werkzeug import Request, Response
 
-def my_app_wrapper(next):
+def my_app_middleware(next):
     def handle(request: Request, *args, **kwargs):
-        print('Request: app wrapper')
+        print('Request: app middleware')
         response = next(request, *args, **kwargs)
-        print('Response: app wrapper')
+        print('Response: app middleware')
         return response
     return handle
 
-def my_food_controller_wrapper(next):
+def my_food_controller_middleware(next):
     def handle(request: Request, *args, **kwargs):
-        print('Request: food controller wrapper')
+        print('Request: food controller middleware')
         response = next(request, *args, **kwargs)
-        print('Response: food controller wrapper')
+        print('Response: food controller middleware')
         return response
     return handle
 
 class Food(Controller):
     def __init__(self):
         Controller.__init__(self)
-        self.wrap(my_food_controller_wrapper)  # Wrapping on controller level
+        self.add_middleware(my_food_controller_middleware)  # Adding on controller level
 
     def __call__(self, request: Request):
         print('Hello, food!')
@@ -518,7 +524,7 @@ class First(Controller):
 
 app = App(First())
 
-app.wrap(my_app_wrapper) # Wrapping on app level
+app.add_middleware(my_app_middleware) # Adding on app level
 
 from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
@@ -526,34 +532,34 @@ run_simple('localhost', 8080, app, use_reloader=True)
 
 I feel like I need to excuse myself for this long example. Just to be clear. in this example we have:
 
-* The `my_app_wrapper` being attached to the application.
+* The `my_app_middlewarer` being attached to the application.
 * The `Food` controller being attached as a sub-controller to `First`
-* The `my_food_controller_wrapper` being attached to the `Food` controller.
+* The `my_food_controller_middleware` being attached to the `Food` controller.
 
 If we point the browser to `http://localhost:8080/` we will see the following in the terminal:
 
 ```
-Request: app wrapper
+Request: app middleware
 Hello, first!
-Response: app wrapper
+Response: app middleware
 ```
 
 And if we point the point the browser to `http://localhost:8080/food` we will see the following in the terminal:
 
 ```
-Request: app wrapper
-Request: food controller wrapper
+Request: app middleware
+Request: food controller middleware
 Hello, food!
-Response: food controller wrapper
-Response: app wrapper
+Response: food controller middleware
+Response: app middleware
 ```
 
 There are two things worth noticing here:
 
-* The wrappers of the `Food` controller are only going to be included if the `Food` controller is used.
-* The wrappers of the parents has higher priority than the sub-controller. In other words: each sub-controller's wrappers are included _after_ the wrappers its parents' wrappers. 
+* The middleware of the `Food` controller are only going to be included if the `Food` controller is used.
+* The middleware of the parents has higher priority than the sub-controller. In other words: each sub-controller's middleware are included _after_ the middleware its parents' middleware.
 
-All the parent controller's wrappers are going to be included. That means that you can for example have an "admin" controller where you limit who has access, and that will be reflected on all of its sub-controllers.
+All the parent controller's middleware are going to be included. That means that you can for example have an "admin" controller where you limit who has access, and that will be reflected on all of its sub-controllers.
 
 ## WSGI
 
@@ -581,7 +587,7 @@ Varmkorv will run under any WSGI server. The `run_simple` server that ships with
 
 As I said earlier, it feels like the LoginManager could get more secure.
 
-There's no built in template engine, and I think it should stay like that. Maybe a wrapper for Jinja2 would be nice, though that probably works splendid stand alone (without a wrapper)
+There's no built in template engine, and I think it should stay like that. Maybe a middleware for Jinja2 would be nice, though that probably works splendid stand alone (without a middleware)
 
 There's no configuration layer. I quite like Viper for Go. Not sure a built-in configuration layer is really needed though.
 

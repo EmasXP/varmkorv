@@ -21,15 +21,15 @@ class ControllerApps(object):
 class Controller(object):
     def __init__(self):
         self._apps = ControllerApps()
-        self._wrappers = []
+        self._middlewares = []
 
     def __setattr__(self, prop, val):
         object.__setattr__(self, prop, val)
-        if not prop.startswith("_") and prop != "wrap":
+        if not prop.startswith("_") and prop != "add_middleware":
             self._apps.notify()
 
-    def wrap(self, handler):
-        self._wrappers.append(handler)
+    def add_middleware(self, middleware):
+        self._middlewares.append(middleware)
         self._apps.notify()
         return self
 
@@ -45,7 +45,7 @@ class Controller(object):
                 }
             )
         for prop_name in dir(self):
-            if len(prop_name) == 0 or prop_name[0] == "_" or prop_name == "wrap":
+            if len(prop_name) == 0 or prop_name[0] == "_" or prop_name == "add_middleware":
                 continue
             prop = getattr(self, prop_name)
             if callable(prop):
@@ -80,7 +80,7 @@ class VerbController(Controller):
             "_patch": "PATCH",
         }
         for prop_name in dir(self):
-            if len(prop_name) == 0 or prop_name == "wrap":
+            if len(prop_name) == 0 or prop_name == "add_middleware":
                 continue
             prop = getattr(self, prop_name)
             if callable(prop) and prop_name in verbs:
@@ -166,7 +166,7 @@ class App(object):
         self._routes = None
         self._routes_num = None
         self._routes_max = None
-        self._wrappers = []
+        self._middlewares = []
         self._compile()
 
     def _compile(self):
@@ -177,12 +177,12 @@ class App(object):
         ):
             controller_instances.append(controller)
 
-            def add_wrappers(instance):
+            def add_middlewares(instance):
                 for controller_instance in reversed(controller_instances):
-                    for wrapper in reversed(controller_instance._wrappers):
-                        instance = wrapper(instance)
-                for wrapper in reversed(self._wrappers):
-                    instance = wrapper(instance)
+                    for middleware in reversed(controller_instance._middlewares):
+                        instance = middleware(instance)
+                for middleware in reversed(self._middlewares):
+                    instance = middleware(instance)
                 return instance
 
             controller._apps.register(self)
@@ -195,7 +195,7 @@ class App(object):
                     name.append(action["name"])
                 entry = {
                     "signature": _compile_signature(action["instance"]),
-                    "instance": add_wrappers(action["instance"]),
+                    "instance": add_middlewares(action["instance"]),
                 }
                 data[tuple(name)][action["verb"]] = entry
 
@@ -255,14 +255,14 @@ class App(object):
     def _render_404(self, request: Request):
         return Response("404")
 
-    def wrap(self, handler):
-        self._wrappers.append(handler)
+    def add_middleware(self, handler):
+        self._middlewares.append(handler)
         self._compile()
         return self
 
 
-class LoginInstance:
-    def __init__(self, request: Request, login: "LoginManager"):
+class CookieLoginInstance:
+    def __init__(self, request: Request, login: "CookieLoginMiddleware"):
         self._request = request
         self._login = login
 
@@ -288,7 +288,7 @@ class LoginInstance:
         del self.user
 
 
-class LoginManager:
+class CookieLoginMiddleware:
     def __init__(self, secret_key, load_user, cookie_name="session", httponly=True):
         self.secret_key = secret_key
         self.load_user = load_user
@@ -297,7 +297,7 @@ class LoginManager:
 
     def __call__(self, next):
         def handle(request, *args, **kwargs):
-            setattr(request, "login", LoginInstance(request, self))
+            setattr(request, "login", CookieLoginInstance(request, self))
             response = next(request, *args, **kwargs)
             if getattr(request, "login").session.should_save:
                 session_data = getattr(request, "login").session.serialize()
@@ -309,7 +309,7 @@ class LoginManager:
         return handle
 
 
-class PeeweeWrapper:
+class PeeweeMiddleware:
     def __init__(self, db):
         self.db = db
 

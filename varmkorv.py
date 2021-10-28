@@ -45,7 +45,11 @@ class Controller(object):
                 }
             )
         for prop_name in dir(self):
-            if len(prop_name) == 0 or prop_name[0] == "_" or prop_name == "add_middleware":
+            if (
+                len(prop_name) == 0
+                or prop_name[0] == "_"
+                or prop_name == "add_middleware"
+            ):
                 continue
             prop = getattr(self, prop_name)
             if callable(prop):
@@ -65,10 +69,8 @@ class Controller(object):
 
 
 class VerbController(Controller):
-    def _get_exposed(self):
-        actions = []
-        controllers = {}
-        verbs = {
+    def __init__(self):
+        self._verbs = {
             "_get": "GET",
             "_head": "HEAD",
             "_post": "POST",
@@ -79,16 +81,28 @@ class VerbController(Controller):
             "_trace": "TRACE",
             "_patch": "PATCH",
         }
+        Controller.__init__(self)
+
+    def __setattr__(self, prop, val):
+        object.__setattr__(self, prop, val)
+        if prop == "add_middleware":
+            return
+        if not prop.startswith("_") or prop in self._verbs:
+            self._apps.notify()
+
+    def _get_exposed(self):
+        actions = []
+        controllers = {}
         for prop_name in dir(self):
             if len(prop_name) == 0 or prop_name == "add_middleware":
                 continue
             prop = getattr(self, prop_name)
-            if callable(prop) and prop_name in verbs:
+            if callable(prop) and prop_name in self._verbs:
                 actions.append(
                     {
                         "name": None,
                         "instance": prop,
-                        "verb": verbs[prop_name],
+                        "verb": self._verbs[prop_name],
                     }
                 )
             if isinstance(prop, Controller):

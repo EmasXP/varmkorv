@@ -1,3 +1,4 @@
+from collections import defaultdict
 from inspect import signature
 from werkzeug.wrappers import Request, Response
 from werkzeug.utils import cached_property
@@ -31,6 +32,71 @@ class Controller(object):
         self._wrappers.append(handler)
         self._apps.notify()
         return self
+
+    def _get_exposed(self):
+        actions = []
+        controllers = {}
+        if callable(self):
+            actions.append(
+                {
+                    "name": None,
+                    "instance": self,
+                    "verb": None,
+                }
+            )
+        for prop_name in dir(self):
+            if len(prop_name) == 0 or prop_name[0] == "_" or prop_name == "wrap":
+                continue
+            prop = getattr(self, prop_name)
+            if callable(prop):
+                actions.append(
+                    {
+                        "name": prop_name,
+                        "instance": prop,
+                        "verb": None,
+                    }
+                )
+            if isinstance(prop, Controller):
+                controllers[prop_name] = prop
+        return {
+            "actions": actions,
+            "controllers": controllers,
+        }
+
+
+class VerbController(Controller):
+    def _get_exposed(self):
+        actions = []
+        controllers = {}
+        verbs = {
+            "_get": "GET",
+            "_head": "HEAD",
+            "_post": "POST",
+            "_put": "PUT",
+            "_delete": "DELETE",
+            "_connect": "CONNECT",
+            "_options": "OPTIONS",
+            "_trace": "TRACE",
+            "_patch": "PATCH",
+        }
+        for prop_name in dir(self):
+            if len(prop_name) == 0 or prop_name == "wrap":
+                continue
+            prop = getattr(self, prop_name)
+            if callable(prop) and prop_name in verbs:
+                actions.append(
+                    {
+                        "name": None,
+                        "instance": prop,
+                        "verb": verbs[prop_name],
+                    }
+                )
+            if isinstance(prop, Controller):
+                controllers[prop_name] = prop
+        return {
+            "actions": actions,
+            "controllers": controllers,
+        }
 
 
 class Caller(object):
@@ -104,7 +170,7 @@ class App(object):
         self._compile()
 
     def _compile(self):
-        data = {}
+        data = defaultdict(dict)
 
         def compile_entry(
             controller: Controller, parents: tuple = (), controller_instances=[]
@@ -120,26 +186,23 @@ class App(object):
                 return instance
 
             controller._apps.register(self)
-            if callable(controller):
+
+            exposed = controller._get_exposed()
+
+            for action in exposed["actions"]:
+                name = list(parents)
+                if action["name"]:
+                    name.append(action["name"])
                 entry = {
-                    "signature": _compile_signature(controller),
-                    "instance": add_wrappers(controller),
+                    "signature": _compile_signature(action["instance"]),
+                    "instance": add_wrappers(action["instance"]),
                 }
-                data[parents] = entry
-            for prop_name in dir(controller):
-                if len(prop_name) == 0 or prop_name[0] == "_":
-                    continue
-                prop = getattr(controller, prop_name)
+                data[tuple(name)][action["verb"]] = entry
+
+            for prop_name, prop in exposed["controllers"].items():
                 name = list(parents)
                 name.append(prop_name)
-                if callable(prop):
-                    entry = {
-                        "signature": _compile_signature(prop),
-                        "instance": add_wrappers(prop),
-                    }
-                    data[tuple(name)] = entry
-                if isinstance(prop, Controller):
-                    compile_entry(prop, tuple(name), controller_instances)
+                compile_entry(prop, tuple(name), controller_instances)
 
         compile_entry(self.root)
 
@@ -156,6 +219,15 @@ class App(object):
         self._routes_num = tuple(sorted(grouped, reverse=True))
         self._routes_max = ma
 
+    def _print_route_debug(self):
+        for data in self._routes.values():
+            for name_tuple, routes_data in data.items():
+                print(name_tuple)
+                for verb, route in routes_data.items():
+                    print("    Verb:", verb)
+                    print("        Signature:", route["signature"])
+                    print("        Instance:", route["instance"])
+
     def __call__(self, environ, start_response):
         request = Request(environ)
         parts = request.path.strip("/").split("/")
@@ -169,10 +241,14 @@ class App(object):
             except KeyError:
                 continue
             name = tuple(parts[:i])
+            verb = request.method
             try:
-                route = routes[name]
+                route = routes[name][verb]
             except KeyError:
-                continue
+                try:
+                    route = routes[name][None]
+                except KeyError:
+                    continue
             return caller(route["instance"], parts[i:], route["signature"])
         return caller(self._render_404, [], [])
 

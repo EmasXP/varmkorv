@@ -235,7 +235,7 @@ class First(Controller):
     def __call__(self, request: Request):
         return Response('Good morning')
 
-    def food(self, request: Request, food: Food):
+    def eat(self, request: Request, food: Food):
         return Response(food.value + ' sounds good')
 
 app = App(First())
@@ -244,9 +244,58 @@ from werkzeug.serving import run_simple
 run_simple('localhost', 8080, app, use_reloader=True)
 ```
 
-* `http://localhost:8080/food/kebab` - Says "kebab sounds good"
-* `http://localhost:8080/food/human` - Gives 404
+* `http://localhost:8080/eat/kebab` - Says "kebab sounds good"
+* `http://localhost:8080/eat/pizza` - Says "pizza sounds good"
+* `http://localhost:8080/eat/human` - Gives 404
 
+## VerbController
+
+A `Controller` does not care with HTTP method is used when requesting a page. That is not always the desired behavior. Writing a REST API this way would be an interesting challenge. Or maybe one can see it as a good way of learning new swear words. Another solution would be to use `VerbController` instead.
+
+```python
+from varmkorv import VerbController, App
+from werkzeug import Request, Response
+
+class Food(VerbController):
+    def _get(self, request: Request):
+        return Response('GET me some food')
+
+    def _post(self, request: Request):
+        return Response('POST me some food')
+
+class First(VerbController):
+    def __init__(self):
+        VerbController.__init__(self)
+        self.food = Food()
+
+    def _get(self, request: Request):
+        return Response('Hello, GET')
+
+app = App(First())
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+Now we have these endpoints:
+
+* `GET http://localhost:8080/` - Says "Hello, GET"
+* `GET http://localhost:8080/food` - Says "GET me some food"
+* `POST http://localhost:8080/food` - Says "POST me some food"
+
+One can have a `VerbController` as a sub-controller of `Controller` and vice verca.
+
+These are the available methods:
+
+* \_get - GET
+* \_head - HEAD
+* \_post - POST
+* \_put - PUT
+* \_delete - DELETE
+* \_connect - CONNECT
+* \_options - OPTIONS
+* \_trace - TRACE
+* \_patch - PATCH
 
 ## Peewee
 
@@ -327,8 +376,7 @@ app.wrap(PeeweeWrapper(db))
 def load_user(user_id):
     return User.get_or_none(User.id == user_id)
 
-login = LoginManager('secret', load_user)
-app.wrap(app)
+app.wrap(LoginManager('secret', load_user))
 ```
 
 I am using Peewee in this example, but you are free to use whatever you like.
@@ -423,6 +471,8 @@ Response: first wrapper
 ```
 
 This is quite important: _The wrapper you add first is the one being included first_. We added `my_first_wrapper` first, and `Request: first wrapper` is what we see first in the terminal.
+
+To put it differently: one shall add the wrappers of highest priority first. That's why we in the LoginManager example added `PeeweeWrapper` before `LoginManager`, because `LoginManager` needs the database connection provided by `PeeweeWrapper`.
 
 ### Wrappers on controllers
 

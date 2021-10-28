@@ -595,6 +595,6 @@ There's no configuration layer. I quite like Viper for Go. Not sure a built-in c
 
 Better 404 handling. I think 404 exceptions should be raised instead. The developer can pass a 404 handler method to the application, and the exception and the current request can be passed to that method on 404. Of course a simple default 404 method needs to exist.
 
-There's no proper file structure to the project. Needs to be added if this project is supposed to get used. There are also things like missing doc strings.
+There are missing doc strings.
 
 There are no unit tests.

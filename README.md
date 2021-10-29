@@ -304,7 +304,8 @@ I am going to show how middlewares work later under this section, but first I wa
 ### Peewee
 
 ```python
-from varmkorv import Controller, App, PeeweeMiddleware
+from varmkorv import Controller, App
+from varmkorv.middleware.peewee import PeeweeMiddleware
 from werkzeug import Request, Response
 from playhouse.apsw_ext import APSWDatabase
 
@@ -329,7 +330,9 @@ run_simple('localhost', 8080, app, use_reloader=True)
 ### CookieLogin
 
 ```python
-from varmkorv import Controller, App, PeeweeMiddleware, CookieLoginMiddleware
+from varmkorv import Controller, App
+from varmkorv.middleware.peewee import PeeweeMiddleware
+from varmkorv.middleware.cookielogin import CookieLoginMiddleware
 from peewee import Model, AutoField, CharField
 from playhouse.apsw_ext import APSWDatabase
 
@@ -598,3 +601,5 @@ Better 404 handling. I think 404 exceptions should be raised instead. The develo
 There are missing doc strings.
 
 There are no unit tests.
+
+PyPI structure and publish.

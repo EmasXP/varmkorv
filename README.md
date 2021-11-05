@@ -566,6 +566,34 @@ There are two things worth noticing here:
 
 All the parent controller's middleware are going to be included. That means that you can for example have an "admin" controller where you limit who has access, and that will be reflected on all of its sub-controllers.
 
+## Static files
+
+You can use the [SharedDataMiddleware](https://werkzeug.palletsprojects.com/en/2.0.x/middleware/shared_data/) from Werkzeug to serve static files. Here's an example:
+
+```python
+import os
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+from werkzeug.middleware.shared_data import SharedDataMiddleware
+
+class First(Controller):
+    def __call__(self, request: Request):
+        return Response('Hello, world!')
+
+app = App(First())
+
+app = SharedDataMiddleware(app, {
+    '/static': os.path.join(os.path.dirname(__file__), 'static')
+})
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+This example will expose the "static" folder located in the same directory as the current file.
+
+When running on production you might want to serve your static files from a web server (like NGINX, Apache or Caddy to name a few). That will serve the files faster, put less stress on your application, and these servers can also utilize cache and other cool features. Of course you can also choose to stick with SharedDataMiddleware too.
+
 ## WSGI
 
 Varmkorv is a WSGI application framework. You can for example run it using Meinheld:

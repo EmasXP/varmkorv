@@ -1,7 +1,16 @@
 from collections import defaultdict
 from inspect import signature
 import functools
+import html
 from werkzeug.wrappers import Request, Response
+
+
+class BaseException(Exception):
+    pass
+
+
+class Exception404(BaseException):
+    pass
 
 
 class ControllerApps(object):
@@ -123,8 +132,7 @@ class Caller(object):
         num_properties = len(properties)
 
         if num_properties > len(sign):
-            # TODO: Throw exception instead
-            return self._execute(self.app._render_404, [self.request])
+            raise Exception404("There are too many properties in the URI")
 
         args = [self.request]
 
@@ -132,13 +140,11 @@ class Caller(object):
             if num_properties > i:
                 try:
                     args.append(param["annotation"](properties[i]))
-                except ValueError:
-                    # TODO: Throw exception instead
-                    return self._execute(self.app._render_404, [self.request])
+                except ValueError as ex:
+                    raise Exception404("Value error") from ex
                 continue
             if param["mandatory"]:
-                # TODO: Throw exception instead
-                return self._execute(self.app._render_404, [self.request])
+                raise Exception404("Mandatory parameter " + param["name"] + " missing")
             args.append(param["default"])
 
         return self._execute(c, args)
@@ -245,7 +251,6 @@ class App(object):
     def __call__(self, environ, start_response):
         request = Request(environ)
         parts = request.path.strip("/").split("/")
-        caller = Caller(self, environ, start_response, request)
         if len(parts) == 1 and parts[0] == "":
             parts = []
         lowest = min(self._routes_max, len(parts))
@@ -263,11 +268,25 @@ class App(object):
                     route = routes[name][None]
                 except KeyError:
                     continue
-            return caller(route["instance"], parts[i:], route["signature"])
-        return caller(self._render_404, [], [])
+            caller = Caller(self, environ, start_response, request)
+            try:
+                return caller(route["instance"], parts[i:], route["signature"])
+            except Exception404 as ex:
+                return self.handle_404(request, ex)(environ, start_response)
+        return self.handle_404(request, Exception404("No matching route"))(
+            environ, start_response
+        )
 
-    def _render_404(self, request: Request):
-        return Response("404")
+    def handle_404(self, request: Request, ex: Exception) -> Response:
+        body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">\n'
+        body += "<title>404 Not Found</title>\n"
+        body += "<h1>Not Found</h1>\n"
+        body += "<p>The requested URL "
+        url = request.url
+        if url:
+            body += "<i>" + html.escape(url) + "</i> "
+        body += "was not found on the server.</p>"
+        return Response(body, status=404, headers={"Content-Type": "text/html"})
 
     def add_middleware(self, handler):
         self._middlewares.append(handler)

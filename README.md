@@ -730,6 +730,35 @@ And in `templates/index.html.mako`:
 Hello, ${name}!
 ```
 
+## 404 handling
+
+To create a custom 404 page, pass a custom function to the `handle_404` property of the `App` object:
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+
+class First(Controller):
+    def __call__(self, request: Request):
+        return Response("Hello, first!")
+
+app = App(First())
+
+def handle_404(request: Request, ex: Exception) -> Response:
+    print("Could not be found because:", str(ex))
+    return Response(
+        request.url + " cannot be found.",
+        status=404
+    )
+
+app.handle_404 = handle_404
+
+from werkzeug.serving import run_simple
+run_simple("localhost", 8080, app, use_reloader=True)
+```
+
+The exception passed is the reason why the page could not be found. It might be that there's no route for the URI, or maybe because a URL parameter was passed as a string when only an integer is accepted.
+
 ## WSGI
 
 Varmkorv is a WSGI application framework. You can for example run it using Meinheld:
@@ -757,8 +786,6 @@ Varmkorv will run under any WSGI server. The `run_simple` server that ships with
 As I said earlier, it feels like the LoginManager could get more secure.
 
 There's no configuration layer. I quite like Viper for Go. Not sure a built-in configuration layer is really needed though.
-
-Better 404 handling. I think 404 exceptions should be raised instead. The developer can pass a 404 handler method to the application, and the exception and the current request can be passed to that method on 404. Of course a simple default 404 method needs to exist.
 
 There are missing doc strings.
 

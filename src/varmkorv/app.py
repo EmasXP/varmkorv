@@ -123,7 +123,6 @@ class Caller(object):
         num_properties = len(properties)
 
         if num_properties > len(sign):
-            print("There are too many properties in the URI")
             # TODO: Throw exception instead
             return self._execute(self.app._render_404, [self.request])
 
@@ -131,17 +130,13 @@ class Caller(object):
 
         for i, param in enumerate(sign):
             if num_properties > i:
-                print(param["name"], "exist")
                 try:
                     args.append(param["annotation"](properties[i]))
                 except ValueError:
-                    print("Value error")
                     # TODO: Throw exception instead
                     return self._execute(self.app._render_404, [self.request])
                 continue
-            # print(param["name"], "does not exist")
             if param["mandatory"]:
-                print("FAILURE, it's mandatory")
                 # TODO: Throw exception instead
                 return self._execute(self.app._render_404, [self.request])
             args.append(param["default"])

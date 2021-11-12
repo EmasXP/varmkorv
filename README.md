@@ -732,7 +732,7 @@ Hello, ${name}!
 
 ## 404 handling
 
-To create a custom 404 page, pass a custom function to the `handle_404` property of the `App` object:
+To create a custom 404 page we'll use the `page_not_found_handler` decorator of the  `App` object:
 
 ```python
 from varmkorv import Controller, App
@@ -740,24 +740,49 @@ from werkzeug import Request, Response
 
 class First(Controller):
     def __call__(self, request: Request):
-        return Response("Hello, first!")
+        return Response('Hello, first!')
 
 app = App(First())
 
+@app.page_not_found_handler
 def handle_404(request: Request, ex: Exception) -> Response:
-    print("Could not be found because:", str(ex))
+    print('Could not be found because:', str(ex))
     return Response(
-        request.url + " cannot be found.",
+        request.url + ' cannot be found.',
         status=404
     )
 
-app.handle_404 = handle_404
-
 from werkzeug.serving import run_simple
-run_simple("localhost", 8080, app, use_reloader=True)
+run_simple('localhost', 8080, app, use_reloader=True)
 ```
 
 The exception passed is the reason why the page could not be found. It might be that there's no route for the URI, or maybe because a URL parameter was passed as a string when only an integer is accepted.
+
+This decorator (`page_not_found_handler`) can also be used as a function if you want to do something fancy:
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+
+class First(Controller):
+    def __call__(self, request: Request):
+        return Response('Hello, first!')
+
+app = App(First())
+
+class My404(object):
+    def __call__(self, request: Request, ex: Exception) -> Response:
+        print('Could not be found because:', str(ex))
+        return Response(
+            request.url + ' cannot be found.',
+            status=404
+        )
+
+app.page_not_found_handler(My404())
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
 
 ## WSGI
 

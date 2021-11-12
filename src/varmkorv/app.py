@@ -272,12 +272,12 @@ class App(object):
             try:
                 return caller(route["instance"], parts[i:], route["signature"])
             except Exception404 as ex:
-                return self.handle_404(request, ex)(environ, start_response)
-        return self.handle_404(request, Exception404("No matching route"))(
+                return self._handle_404(request, ex)(environ, start_response)
+        return self._handle_404(request, Exception404("No matching route"))(
             environ, start_response
         )
 
-    def handle_404(self, request: Request, ex: Exception) -> Response:
+    def _handle_404(self, request: Request, ex: Exception) -> Response:
         body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">\n'
         body += "<title>404 Not Found</title>\n"
         body += "<h1>Not Found</h1>\n"
@@ -292,6 +292,10 @@ class App(object):
         self._middlewares.append(handler)
         self._compile()
         return self
+
+    def page_not_found_handler(self, func):
+        self._handle_404 = func
+        return func
 
 
 def add_middleware(middleware):

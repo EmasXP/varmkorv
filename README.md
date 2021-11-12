@@ -657,6 +657,79 @@ This example will expose the "static" folder located in the same directory as th
 
 When running on production you might want to serve your static files from a web server (like NGINX, Apache or Caddy to name a few). That will serve the files faster, put less stress on your application, and these servers can also utilize cache and other cool features. Of course you can also choose to stick with SharedDataMiddleware too.
 
+## Templates
+
+Varmkorv does not ship with any template engine, but I am going to show you examples on how to use [Jinja](https://jinja.palletsprojects.com/) and [Mako](https://www.makotemplates.org/).
+
+### Jinja
+
+```python
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+jinja = Environment(
+    loader=FileSystemLoader('templates'),
+    autoescape=select_autoescape()
+)
+
+
+class First(Controller):
+    def __call__(self, request: Request):
+        return Response(
+            jinja.get_template('index.html.j2') \
+                .render(name='World')
+        )
+
+
+app = App(First())
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+And in `templates/index.html.j2`:
+
+```
+Hello, {{ name }}!
+```
+
+### Mako
+
+```python
+import os
+from varmkorv import Controller, App
+from werkzeug import Request, Response
+from mako.lookup import TemplateLookup
+
+mako = TemplateLookup(
+    directories=[
+        os.path.join(os.path.dirname(__file__), 'templates')
+    ],
+    module_directory='/tmp/mako_modules'
+)
+
+
+class First(Controller):
+    def __call__(self, request: Request):
+        return Response(
+            mako.get_template('index.html.mako') \
+                .render(name='World')
+        )
+
+
+app = App(First())
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+And in `templates/index.html.mako`:
+
+```
+Hello, ${name}!
+```
+
 ## WSGI
 
 Varmkorv is a WSGI application framework. You can for example run it using Meinheld:
@@ -682,8 +755,6 @@ Varmkorv will run under any WSGI server. The `run_simple` server that ships with
 ## Things that are missing
 
 As I said earlier, it feels like the LoginManager could get more secure.
-
-There's no built in template engine, and I think it should stay like that. Maybe a middleware for Jinja2 would be nice, though that probably works splendid stand alone (without a middleware)
 
 There's no configuration layer. I quite like Viper for Go. Not sure a built-in configuration layer is really needed though.
 

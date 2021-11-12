@@ -121,7 +121,7 @@ class VerbController(Controller):
         }
 
 
-class Caller(object):
+class ActionCaller(object):
     def __init__(self, app: "App", environ, start_response, request: Request):
         self.app = app
         self.environ = environ
@@ -268,7 +268,7 @@ class App(object):
                     route = routes[name][None]
                 except KeyError:
                     continue
-            caller = Caller(self, environ, start_response, request)
+            caller = ActionCaller(self, environ, start_response, request)
             try:
                 return caller(route["instance"], parts[i:], route["signature"])
             except Exception404 as ex:

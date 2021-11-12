@@ -1,5 +1,6 @@
 from collections import defaultdict
 from inspect import signature
+import functools
 from werkzeug.wrappers import Request, Response
 
 
@@ -191,7 +192,13 @@ class App(object):
 
             def add_middlewares(instance):
                 for controller_instance in reversed(controller_instances):
+                    if hasattr(controller_instance, "_decorator_middlewares"):
+                        for middleware in controller_instance._decorator_middlewares:
+                            instance = middleware(instance)
                     for middleware in reversed(controller_instance._middlewares):
+                        instance = middleware(instance)
+                if hasattr(self, "_decorator_middlewares"):
+                    for middleware in self._decorator_middlewares:
                         instance = middleware(instance)
                 for middleware in reversed(self._middlewares):
                     instance = middleware(instance)
@@ -271,3 +278,17 @@ class App(object):
         self._middlewares.append(handler)
         self._compile()
         return self
+
+
+def add_middleware(middleware):
+    def decorator(func):
+        if isinstance(func, type):
+            if not hasattr(func, "_decorator_middlewares"):
+                func._decorator_middlewares = []
+            func._decorator_middlewares.append(middleware)
+            return func
+        mw = middleware(func)
+        functools.update_wrapper(mw, func)
+        return mw
+
+    return decorator

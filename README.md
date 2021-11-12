@@ -566,6 +566,69 @@ There are two things worth noticing here:
 
 All the parent controller's middleware are going to be included. That means that you can for example have an "admin" controller where you limit who has access, and that will be reflected on all of its sub-controllers.
 
+### Middleware on actions
+
+```python
+from varmkorv import Controller, App, add_middleware
+from werkzeug import Request, Response
+
+def my_action_middleware(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: action middleware')
+        response = next(request, *args, **kwargs)
+        print('Response: action middleware')
+        return response
+    return handle
+
+class First(Controller):
+    @add_middleware(my_action_middleware)
+    def __call__(self, request: Request):
+        print('Hello, first!')
+        return Response('Hello, first!')
+
+app = App(First())
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
+We are using the `add_middleware` decorator here. This decorator works just as ordinary decorators. The middleware will be called, and the function will be wrapped. That means it will work well if you want to mix with other decorators. Make sure to always wrap the function in the decorator using functools if you are writing decorators, otherwise Varmkorv will not be able to find the proper definition of the function.
+
+The `add_middleware` decorator also works for controllers:
+
+```python
+from varmkorv import Controller, App, add_middleware
+from werkzeug import Request, Response
+
+def my_controller_middleware(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: controller middleware')
+        response = next(request, *args, **kwargs)
+        print('Response: controller middleware')
+        return response
+    return handle
+
+def my_action_middleware(next):
+    def handle(request: Request, *args, **kwargs):
+        print('Request: action middleware')
+        response = next(request, *args, **kwargs)
+        print('Response: action middleware')
+        return response
+    return handle
+
+@add_middleware(my_controller_middleware)
+class First(Controller):
+    @add_middleware(my_action_middleware)
+    def __call__(self, request: Request):
+        print('Hello, first!')
+        return Response('Hello, first!')
+
+app = App(First())
+
+from werkzeug.serving import run_simple
+run_simple('localhost', 8080, app, use_reloader=True)
+```
+
 ## Static files
 
 You can use the [SharedDataMiddleware](https://werkzeug.palletsprojects.com/en/2.0.x/middleware/shared_data/) from Werkzeug to serve static files. Here's an example:

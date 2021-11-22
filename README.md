@@ -332,7 +332,7 @@ run_simple('localhost', 8080, app, use_reloader=True)
 ```python
 from varmkorv import Controller, App
 from varmkorv.middleware.peewee import PeeweeMiddleware
-from varmkorv.middleware.cookielogin import CookieLoginMiddleware
+from varmkorv.middleware.cookielogin import CookieLoginMiddleware, CookieLoginInstance
 from peewee import Model, AutoField, CharField
 from playhouse.apsw_ext import APSWDatabase
 
@@ -354,7 +354,9 @@ class User(BaseModel):
 
     def get_id(self):
         # Return the id of the user. This one is needed by LoginManager
-        return str(self.id)
+        return self.id
+
+db.create_tables([User])
 
 class First(Controller):
     def login(self, request: Request):
@@ -366,14 +368,21 @@ class First(Controller):
         if not user or not user.verify_password(password):
             return Response('Wrong username or password')
 
-        request.login.login_user(user)
+        login: CookieLoginInstance = getattr(request, 'login')
+        login.login_user(user)
 
         return Response('Successfully logged in')
 
     def check(self, request: Request):
-        if not request.login.user:
+        login: CookieLoginInstance = getattr(request, 'login')
+        if not login.user:
             return Response('Not logged in')
-        return Response('Logged in as ' + request.login.user.username)
+        return Response('Logged in as ' + login.user.username)
+
+    def logout(self, request: Request):
+        login: CookieLoginInstance = getattr(request, 'login')
+        login.logout_user()
+        return Response('Logged out')
 
 app = App(First())
 
@@ -388,7 +397,134 @@ app.add_middleware(CookieLoginMiddleware('secret', load_user))
 
 I am using Peewee in this example, but you are free to use whatever you like.
 
-Feels like more work needs to be done on the CookieLoginMiddleware to make it more secure.
+### AdvancedCookieLogin
+
+This middleware gives you control to create tokens. You need to have a store, and no store is bundled with Varmkorv. You might want to integrate the tokens to your applications to handle user instances for example. I'm going to show an example that stores tokens in a database using Peewee.
+
+```python
+from typing import Optional
+import random
+import string
+from varmkorv import App, Controller
+from varmkorv.middleware.peewee import PeeweeMiddleware
+from varmkorv.middleware.cookielogin import (
+    AdvancedCookieLoginMiddleware,
+    AdvancedCookieLoginMiddlewareAbstractStore,
+    AdvancedCookieLoginInstance,
+)
+from werkzeug import Request, Response
+from secure_cookie.cookie import SecureCookie
+import hashlib
+from peewee import Model, AutoField, CharField, ForeignKeyField
+from playhouse.apsw_ext import APSWDatabase
+
+
+db = APSWDatabase("my-food-website.db")
+
+
+class BaseModel(Model):
+    class Meta:
+        database = db
+
+
+class User(BaseModel):
+    id = AutoField()
+    username = CharField()
+    password = CharField()
+
+    def verify_password(self, password):
+        # Again, just for testing purposes
+        return True
+
+    def get_id(self):
+        return self.id
+
+
+class Token(BaseModel):
+    id = AutoField()
+    user = ForeignKeyField(User)
+    token = CharField(32)
+
+
+db.create_tables([User, Token])
+
+
+class LoginStore(AdvancedCookieLoginMiddlewareAbstractStore):
+    def new(self, user: User, request: Request) -> str:
+        t = Token()
+        t.user_id = user.id
+        t.token = "".join(random.choices(string.ascii_letters + string.digits, k=32))
+        t.save()
+        return t.token
+
+    def get(self, user_id: int, token: str, request: Request):
+        t: Optional[Token] = Token.get_or_none(
+            Token.user_id == user_id, Token.token == token
+        )
+        if t:
+            return t.user
+        return None
+
+    def remove(self, user: User, token: str, request: Request):
+        Token.delete().where(Token.user_id == user.id, Token.token == token).execute()
+
+
+login = AdvancedCookieLoginMiddleware("mysecret", LoginStore())
+
+SecureCookie.hash_method = hashlib.sha256
+
+
+class First(Controller):
+    def login(self, request: Request):
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        user = User.find_or_none(User.username == username)
+
+        if not user or not user.verify_password(password):
+            return Response('Wrong username or password')
+
+        login: AdvancedCookieLoginInstance = getattr(request, 'login')
+        login.login_user(user)
+
+        return Response('Successfully logged in')
+
+    def check(self, request: Request):
+        login: AdvancedCookieLoginInstance = getattr(request, 'login')
+        if not login.user:
+            return Response('Not logged in')
+        return Response('Logged in as ' + login.user.username)
+
+    def logout(self, request: Request):
+        login: AdvancedCookieLoginInstance = getattr(request, 'login')
+        login.logout_user()
+        return Response('Logged out')
+
+
+app = App(First())
+app.add_middleware(PeeweeMiddleware(db))
+app.add_middleware(login)
+
+from werkzeug.serving import run_simple
+
+run_simple("localhost", 8000, app, use_reloader=True)
+```
+
+Here we create a `LoginStore` class (though the name is up for you to decide), that inherits the `AdvancedCookieLoginMiddlewareAbstractStore` abstract class. It needs three methods:
+
+* `def new(self, user, request) -> str:` This one is used to create _new_ tokens. There can be several tokens created for the same user at the same time. If you only want to allow one login instance per user, you can implement that logic here. The `user` is an instance of `User` in our example.
+* `def get(self, user_id, token, request):` This one is called every time a login session needs to be fetched. It shall return the user instance; a `User` instance in our example. The `user_id` and `token` are passed for you to fetch the correct token and user.
+* `def remove(self, user, token, request) -> None:` This one is used when a user is logged out. Again, `user` needs to be `User` in our example.
+
+All these methods also receive the current `request`. That is if you want to implement more logic, or maybe add IP logging or detect country change and so on. The example (though quite long) is very simple.
+
+In this example I am also changing the cookie hash method to sha256 like this:
+
+```python
+SecureCookie.hash_method = hashlib.sha256
+```
+
+`SecureCookie` uses md5 by default, and it might be a good idea to change it to something better.
 
 ### How middlewares work, and how to create new ones
 
@@ -808,11 +944,13 @@ Varmkorv will run under any WSGI server. The `run_simple` server that ships with
 
 ## Things that are missing
 
-As I said earlier, it feels like the LoginManager could get more secure.
-
 There's no configuration layer. I quite like Viper for Go. Not sure a built-in configuration layer is really needed though.
 
 There are missing doc strings.
+
+Exception debug during development.
+
+ASGI. I have tried it, and I can write about the steps I took to make it work, but I will probably not integrate support for it at this stage.
 
 There are no unit tests.
 
